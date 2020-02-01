@@ -1,0 +1,9 @@
+{{define "head"}}<title>Snippets</title>{{end}}
+{{define "body"}}
+    {{range .Snippets}}
+        <article>
+            <p>{{.Body}}</p>
+            <aside class="text-sm text-gray-600">posted {{.PostedAt}}</aside>
+        </article>
+    {{end}}
+{{end}}
