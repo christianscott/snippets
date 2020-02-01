@@ -53,6 +53,7 @@ type snippetsPage struct {
 
 type snippetsRepo interface {
 	list() []snippet
+	listByAuthor(a author) []snippet
 }
 
 type inMemorySnippetsRepo struct {
@@ -98,12 +99,7 @@ func (r inMemoryAuthorRepo) getById(id string) *author {
 func makeViewSnippetsHandler(tmpl templates, sr snippetsRepo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		snippets := sr.list()
-		snippetsPage := snippetsPage{}
-		for _, s := range snippets {
-			snippetsPage.Snippets = append(snippetsPage.Snippets, s.toRenderableSnippet())
-		}
-
-		tmpl["snippets.html"].ExecuteTemplate(w, "base", snippetsPage)
+		renderSnippets(tmpl, w, snippets)
 	}
 }
 
@@ -115,14 +111,17 @@ func makeViewSnippetsByAuthorHandler(tmpl templates, ar authorRepo, sr snippetsR
 			panic("nil author")
 		}
 
-		snippets := sr.list()
-		snippetsPage := snippetsPage{}
-		for _, s := range snippets {
-			snippetsPage.Snippets = append(snippetsPage.Snippets, s.toRenderableSnippet())
-		}
-
-		tmpl["snippets.html"].ExecuteTemplate(w, "base", snippetsPage)
+		snippets := sr.listByAuthor(*a)
+		renderSnippets(tmpl, w, snippets)
 	}
+}
+
+func renderSnippets(tmpl templates, w http.ResponseWriter, ss []snippet) error {
+	page := snippetsPage{}
+	for _, s := range ss {
+		page.Snippets = append(page.Snippets, s.toRenderableSnippet())
+	}
+	return tmpl["snippets.html"].ExecuteTemplate(w, "base", page)
 }
 
 func main() {
