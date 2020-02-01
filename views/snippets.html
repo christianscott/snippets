@@ -1,5 +1,12 @@
 {{define "head"}}<title>Snippets</title>{{end}}
 {{define "body"}}
+    {{if .ShowNewSnippetForm}}
+        <form action="/" method="post" enctype="application/x-www-form-urlencoded">
+            <textarea name="snippet"></textarea>
+            <input type="submit" value="Submit">
+        </form>
+    {{end}}
+
     {{range .Snippets}}
         <article>
             <p>{{.Body}}</p>
