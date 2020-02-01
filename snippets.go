@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"text/template"
 	"time"
 
@@ -48,30 +49,48 @@ type renderableSnippet struct {
 }
 
 type snippetsPage struct {
-	Snippets []renderableSnippet
+	ShowNewSnippetForm bool
+	Snippets           []renderableSnippet
 }
 
 type snippetsRepo interface {
 	list() []snippet
 	listByAuthor(a author) []snippet
+	add(s snippet) error
 }
 
 type inMemorySnippetsRepo struct {
+	sync.RWMutex
 	snippets []snippet
 }
 
-func (r inMemorySnippetsRepo) list() []snippet {
+func newInMemorySnippetsRepo(snippets []snippet) inMemorySnippetsRepo {
+	return inMemorySnippetsRepo{sync.RWMutex{}, snippets}
+}
+
+func (r *inMemorySnippetsRepo) list() []snippet {
 	return r.snippets
 }
 
-func (r inMemorySnippetsRepo) listByAuthor(a author) []snippet {
-	snippetsByAuthor := []snippet{}
+func (r *inMemorySnippetsRepo) listByAuthor(a author) []snippet {
+	r.Lock()
+	defer r.Unlock()
+
+	var snippetsByAuthor []snippet
 	for _, s := range r.snippets {
 		if a.is(s.Author) {
 			snippetsByAuthor = append(snippetsByAuthor, s)
 		}
 	}
 	return snippetsByAuthor
+}
+
+func (r *inMemorySnippetsRepo) add(s snippet) error {
+	r.Lock()
+	defer r.Unlock()
+
+	r.snippets = append([]snippet{s}, r.snippets...)
+	return nil
 }
 
 type authorRepo interface {
@@ -83,11 +102,11 @@ type inMemoryAuthorRepo struct {
 	authors []author
 }
 
-func (r inMemoryAuthorRepo) list() []author {
+func (r *inMemoryAuthorRepo) list() []author {
 	return r.authors
 }
 
-func (r inMemoryAuthorRepo) getById(id string) *author {
+func (r *inMemoryAuthorRepo) getById(id string) *author {
 	for _, a := range r.authors {
 		if a.ID == id {
 			return &a
@@ -98,8 +117,19 @@ func (r inMemoryAuthorRepo) getById(id string) *author {
 
 func makeViewSnippetsHandler(tmpl templates, sr snippetsRepo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			must(r.ParseForm())
+			s := snippet{
+				Author: author{ID: "1", Name: "Someone New"},
+				Body:   r.Form.Get("snippet"),
+			}
+			must(sr.add(s))
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+
 		snippets := sr.list()
-		renderSnippets(tmpl, w, snippets)
+		must(renderSnippets(tmpl, w, snippets, true))
 	}
 }
 
@@ -112,16 +142,22 @@ func makeViewSnippetsByAuthorHandler(tmpl templates, ar authorRepo, sr snippetsR
 		}
 
 		snippets := sr.listByAuthor(*a)
-		renderSnippets(tmpl, w, snippets)
+		must(renderSnippets(tmpl, w, snippets, false))
 	}
 }
 
-func renderSnippets(tmpl templates, w http.ResponseWriter, ss []snippet) error {
-	page := snippetsPage{}
+func renderSnippets(tmpl templates, w http.ResponseWriter, ss []snippet, showNewSnippetsForm bool) error {
+	page := snippetsPage{ShowNewSnippetForm: showNewSnippetsForm}
 	for _, s := range ss {
 		page.Snippets = append(page.Snippets, s.toRenderableSnippet())
 	}
 	return tmpl["snippets.html"].ExecuteTemplate(w, "base", page)
+}
+
+func must(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
@@ -130,20 +166,19 @@ func main() {
 
 	a := author{Name: "christian scott", ID: "0"}
 
-	snippets := []snippet{
-		{
-			Author:   a,
-			PostedAt: time.Now(),
-			Body:     "I worked on this shitty snippets tool",
-		},
-	}
-	snippetsRepo := inMemorySnippetsRepo{snippets}
+	snippetsRepo := newInMemorySnippetsRepo([]snippet{})
+
+	must(snippetsRepo.add(snippet{
+		Author:   a,
+		PostedAt: time.Now(),
+		Body:     "I worked on this shitty snippets tool",
+	}))
 
 	authors := []author{a}
 	authorsRepo := inMemoryAuthorRepo{authors}
 
-	http.HandleFunc("/", makeViewSnippetsHandler(tmpl, snippetsRepo))
-	http.HandleFunc("/authors/", makeViewSnippetsByAuthorHandler(tmpl, authorsRepo, snippetsRepo))
+	http.HandleFunc("/", makeViewSnippetsHandler(tmpl, &snippetsRepo))
+	http.HandleFunc("/authors/", makeViewSnippetsByAuthorHandler(tmpl, &authorsRepo, &snippetsRepo))
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
