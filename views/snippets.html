@@ -3,7 +3,7 @@
     {{range .Snippets}}
         <article>
             <p>{{.Body}}</p>
-            <aside class="text-sm text-gray-600">posted {{.PostedAt}}</aside>
+            <aside class="text-sm text-gray-600">posted {{.PostedAt}} by <a href="{{.AuthorURI}}">{{.AuthorName}}</a></aside>
         </article>
     {{end}}
 {{end}}
